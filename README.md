@@ -92,6 +92,16 @@ PNU        : 1168010100107370000
 
 > 위 출력은 예시입니다. 실제 값은 조회 시점의 공부 정보에 따라 달라집니다.
 
+## 배포
+
+로컬 검증이 끝났으면 VPS + Docker 로 배포한다. 절차·체크리스트는
+[docs/DEPLOY.md](docs/DEPLOY.md) 참고 (`.env` 배포 전 재확인 항목,
+Cloudflare 를 앞단에 세우는 방법 포함).
+
+```bash
+docker compose up -d --build
+```
+
 ## API
 
 | 메서드 | 경로 | 설명 |

@@ -1,0 +1,24 @@
+# 로컬 확인 · VPS 배포 공용. 사용법:
+#   docker compose up -d --build     # 빌드 후 백그라운드 실행
+#   docker compose logs -f           # 로그 확인
+#   docker compose down              # 중지
+#
+# .env 는 저장소에 커밋되지 않는다 — VPS 에도 별도로 옮겨 놓아야 한다.
+# 자세한 순서는 docs/DEPLOY.md 참고.
+
+services:
+  api:
+    build: .
+    image: huey-prog:latest
+    container_name: huey-prog-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
