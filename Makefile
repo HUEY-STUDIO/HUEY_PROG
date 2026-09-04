@@ -1,10 +1,13 @@
-.PHONY: install run test lint clean
+.PHONY: install run doctor test lint clean
 
 install:
 	pip install -r requirements.txt
 
 run:
 	uvicorn app.main:app --reload
+
+doctor:
+	python -m app.doctor
 
 test:
 	python -m pytest -q

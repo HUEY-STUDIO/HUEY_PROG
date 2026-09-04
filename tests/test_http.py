@@ -113,3 +113,41 @@ async def test_cache_prevents_duplicate_upstream_calls(monkeypatch):
 
     cache.clear()
     get_settings.cache_clear()
+
+
+@respx.mock
+async def test_connect_failure_is_flagged_as_network_error():
+    # 프록시/방화벽 차단은 인증키 문제와 조치가 다르므로 구분되어야 한다.
+    respx.get("https://example.test/api").mock(
+        side_effect=httpx.ConnectError("connection refused")
+    )
+
+    with pytest.raises(PublicApiError) as exc:
+        await fetch("test", "https://example.test/api", {})
+
+    assert exc.value.network is True
+    assert "연결하지 못했습니다" in exc.value.detail
+
+
+@respx.mock
+async def test_proxy_failure_is_flagged_as_network_error():
+    respx.get("https://example.test/api").mock(
+        side_effect=httpx.ProxyError("403 Forbidden")
+    )
+
+    with pytest.raises(PublicApiError) as exc:
+        await fetch("test", "https://example.test/api", {})
+
+    assert exc.value.network is True
+
+
+@respx.mock
+async def test_auth_failure_is_not_flagged_as_network_error():
+    respx.get("https://example.test/api").mock(
+        return_value=httpx.Response(401, text="unauthorized")
+    )
+
+    with pytest.raises(PublicApiError) as exc:
+        await fetch("test", "https://example.test/api", {})
+
+    assert exc.value.network is False

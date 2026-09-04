@@ -5,9 +5,19 @@
 환경변수로 덮어쓸 수 있게 노출해 두었다.
 """
 
+import re
 from functools import lru_cache
+from urllib.parse import unquote
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 공공데이터포털은 같은 키를 Encoding/Decoding 두 가지 형태로 제공한다.
+# httpx 가 쿼리스트링을 인코딩하므로 Decoding 형태를 써야 하는데, 포털 화면에서
+# Encoding 값을 그대로 복사해 넣는 실수가 흔하다(그러면 %2B 가 %252B 로 이중
+# 인코딩되어 SERVICE_KEY_IS_NOT_REGISTERED_ERROR 가 난다).
+# base64 키에 등장할 수 있는 문자(+ / =)의 퍼센트 인코딩이 보이면 디코딩한다.
+_PERCENT_ENCODED = re.compile(r"%(2B|2F|3D)", re.IGNORECASE)
 
 
 class Settings(BaseSettings):
@@ -38,6 +48,14 @@ class Settings(BaseSettings):
     http_max_retries: int = 2
     cache_ttl_seconds: int = 3600
     log_level: str = "INFO"
+
+    @field_validator("data_go_kr_service_key", mode="after")
+    @classmethod
+    def _normalize_service_key(cls, value: str) -> str:
+        """Encoding 키를 붙여넣어도 동작하도록 Decoding 형태로 통일한다."""
+        if value and _PERCENT_ENCODED.search(value):
+            return unquote(value)
+        return value
 
     def missing_keys(self) -> list[str]:
         """설정되지 않은 인증키 이름 목록. /health 에서 노출한다."""

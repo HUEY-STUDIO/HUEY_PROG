@@ -46,6 +46,20 @@ uvicorn app.main:app --reload
 - API 문서: http://127.0.0.1:8000/docs
 - 상태 확인: http://127.0.0.1:8000/health
 
+### 연동 진단 (키 발급 후 가장 먼저 실행)
+
+4개 외부 API 를 하나씩 호출해 어디까지 동작하는지 확인합니다.
+엔드포인트 경로나 응답 구조가 활용가이드와 다르면 여기서 바로 드러납니다.
+
+```bash
+python -m app.doctor                  # 단계별 통과/실패
+python -m app.doctor --raw            # 원본 응답 전문 (이슈 리포트용)
+python -m app.doctor --address "부산광역시 해운대구 우동 1394"
+```
+
+실패 시 원인에 맞는 조치를 안내합니다. 상류 서버에 닿지 못한 경우
+(프록시·방화벽)와 인증 실패를 구분해서 보고합니다.
+
 ### CLI 로 바로 확인
 
 ```bash
@@ -102,6 +116,7 @@ PNU        : 1168010100107370000
 app/
   main.py              FastAPI 진입점
   cli.py               터미널 조회 도구
+  doctor.py            공공 API 연동 진단 도구
   config.py            인증키·엔드포인트 설정 (전부 .env 로 오버라이드 가능)
   models.py            응답 스키마
   domain/
@@ -118,7 +133,7 @@ app/
     http.py            재시도·오류 정규화
     cache.py           TTL 캐시 (일 호출 한도 대응)
     parsing.py         응답 필드명 편차 흡수 헬퍼
-tests/                 84개 테스트 (외부 API 전부 모킹)
+tests/                 96개 테스트 (외부 API 전부 모킹)
 docs/API_KEYS.md       서비스키 발급 및 .env 설정 가이드
 ```
 
@@ -148,6 +163,10 @@ python -m pytest -q
 **호출 한도 대응** — LURIS 개발계정은 일 1,000건, 브이월드 지오코더도 일별
 제한이 있습니다. `CACHE_TTL_SECONDS`(기본 1시간) TTL 캐시로 반복 조회를 줄입니다.
 다중 워커 운영 시에는 Redis 등으로 교체하세요.
+
+**인증키 형태 자동 보정** — 공공데이터포털은 같은 키를 Encoding/Decoding 두
+형태로 제공합니다. Encoding 값을 넣으면 `%2B` 가 `%252B` 로 이중 인코딩되어
+인증에 실패하는데, 어느 쪽을 넣어도 동작하도록 설정 단계에서 정규화합니다.
 
 ## 알려진 한계 / 다음 단계
 

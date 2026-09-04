@@ -60,9 +60,11 @@ Geocoder API 2.0 으로 주소를 경위도(EPSG:4326)로 변환합니다.
 4. **Decoding 값**을 `.env` 의 `DATA_GO_KR_SERVICE_KEY` 에 입력
 
 > ### 자주 겪는 함정
-> - **Encoding / Decoding 키를 혼동하면 실패합니다.** 이 프로젝트는 `httpx` 가
->   쿼리스트링을 인코딩하므로 **Decoding 키**를 넣어야 합니다. Encoding 키를 넣으면
->   `+`, `=` 가 이중 인코딩되어 `SERVICE_KEY_IS_NOT_REGISTERED_ERROR` 가 납니다.
+> - **Encoding / Decoding 키 혼동** — 원칙적으로 **Decoding 키**를 넣어야 합니다.
+>   Encoding 키를 넣으면 `+`, `=` 가 이중 인코딩되어
+>   `SERVICE_KEY_IS_NOT_REGISTERED_ERROR` 가 납니다.
+>   이 프로젝트는 어느 쪽을 넣어도 동작하도록 설정 단계에서 자동 정규화하지만,
+>   헷갈리면 Decoding 값을 넣는 것이 안전합니다.
 > - 활용신청 직후에는 키가 반영되기까지 **최대 1시간** 걸릴 수 있습니다.
 > - 개발계정은 일 호출 한도가 낮습니다. 이 프로젝트의 TTL 캐시
 >   (`CACHE_TTL_SECONDS`)를 켜 두고 개발하세요.
@@ -93,7 +95,30 @@ cp .env.example .env
 # 편집기로 .env 를 열어 위에서 발급받은 값을 채웁니다.
 ```
 
-설정이 제대로 됐는지는 서버를 띄우고 `/health` 로 확인합니다.
+### 1) 연동 진단 실행
+
+키를 넣었으면 가장 먼저 진단 도구를 돌려 4개 API 가 실제로 응답하는지 확인합니다.
+
+```bash
+python -m app.doctor
+```
+
+```
+[1] 도로명주소 API — '서울특별시 강남구 테헤란로 152'
+  [ OK ] 3건 검색
+       PNU    : 1168010100107370000
+[2] 브이월드 Geocoder API
+  [ OK ] 좌표: 37.5006, 127.0364
+...
+전체 통과. 파이프라인이 정상 동작합니다.
+```
+
+실패하면 원인별 조치를 안내합니다. 응답 구조가 예상과 다르다고 나오면
+`python -m app.doctor --raw` 로 원본을 확보해 파서를 수정하세요.
+
+### 2) /health 로 확인
+
+서버를 띄우고 확인할 수도 있습니다.
 
 ```bash
 uvicorn app.main:app --reload
@@ -106,6 +131,9 @@ curl http://127.0.0.1:8000/health
 
 `missing_keys` 가 비어 있지 않으면 해당 단계는 동작하지 않습니다.
 (예: `LAW_OC` 만 없으면 대지개요까지는 조회되고 조례 검색만 실패합니다.)
+
+> `/health` 는 **키가 설정됐는지**만 봅니다. 키가 실제로 **유효한지**는
+> `python -m app.doctor` 로 확인하세요.
 
 ---
 

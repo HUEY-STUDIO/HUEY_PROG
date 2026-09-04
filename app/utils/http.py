@@ -24,12 +24,22 @@ class PublicApiError(RuntimeError):
         source: 어느 API 인지 (예: "juso", "vworld", "nsdi").
         detail: 사람이 읽을 수 있는 사유.
         status_code: 상류 HTTP 상태코드 (있는 경우).
+        network: 상류에 닿지도 못한 경우(DNS/프록시/방화벽/타임아웃) True.
+            인증키 문제와 네트워크 문제는 조치가 전혀 다르므로 구분한다.
     """
 
-    def __init__(self, source: str, detail: str, status_code: int | None = None):
+    def __init__(
+        self,
+        source: str,
+        detail: str,
+        status_code: int | None = None,
+        *,
+        network: bool = False,
+    ):
         self.source = source
         self.detail = detail
         self.status_code = status_code
+        self.network = network
         super().__init__(f"[{source}] {detail}")
 
 
@@ -79,14 +89,23 @@ async def fetch(
     clean = {k: v for k, v in params.items() if v is not None}
 
     last_error: str = "unknown error"
+    is_network_error = False
     for attempt in range(settings.http_max_retries + 1):
         try:
             response = await client.get(url, params=clean)
         except httpx.TimeoutException:
             last_error = "요청 시간 초과"
+            is_network_error = True
+        except (httpx.ProxyError, httpx.ConnectError) as exc:
+            # 상류 서버에 닿지도 못한 경우. 프록시/방화벽/DNS 문제이지
+            # 인증키 문제가 아니다.
+            last_error = f"서버에 연결하지 못했습니다 (프록시·방화벽·DNS 확인): {exc}"
+            is_network_error = True
         except httpx.HTTPError as exc:
             last_error = f"네트워크 오류: {exc}"
+            is_network_error = True
         else:
+            is_network_error = False
             if response.status_code >= 500:
                 last_error = f"상류 서버 오류 (HTTP {response.status_code})"
             elif response.status_code >= 400:
@@ -112,7 +131,7 @@ async def fetch(
             )
             await asyncio.sleep(backoff)
 
-    raise PublicApiError(source, last_error)
+    raise PublicApiError(source, last_error, network=is_network_error)
 
 
 def _parse(source: str, response: httpx.Response, expect: str) -> Any:
