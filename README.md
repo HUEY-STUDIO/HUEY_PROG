@@ -135,6 +135,7 @@ app/
     parsing.py         응답 필드명 편차 흡수 헬퍼
 tests/                 96개 테스트 (외부 API 전부 모킹)
 docs/API_KEYS.md       서비스키 발급 및 .env 설정 가이드
+docs/STATUS.md         실제 API 연동 검증 현황 (어디까지 확인됐는지)
 ```
 
 ## 테스트
