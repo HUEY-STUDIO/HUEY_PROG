@@ -5,6 +5,7 @@
 
     python -m app.doctor
     python -m app.doctor --raw            # 원본 응답 전문 출력 (이슈 리포트용)
+    python -m app.doctor --raw --raw-limit 0   # 잘라내지 않고 전부 출력
     python -m app.doctor --address "부산광역시 해운대구 우동 1394"
 """
 
@@ -30,9 +31,14 @@ SKIP = "  [SKIP]"
 
 
 class Doctor:
-    def __init__(self, address: str, raw: bool) -> None:
+    # --raw 출력 시 항목당 기본 상한. 예전 4000자는 토지특성 응답조차
+    # 중간에서 잘라 이슈 리포트로 쓸 수 없었다.
+    DUMP_LIMIT = 20000
+
+    def __init__(self, address: str, raw: bool, raw_limit: int = DUMP_LIMIT) -> None:
         self.address = address
         self.raw = raw
+        self.raw_limit = raw_limit
         self.failures: list[str] = []
         self.pnu: str | None = None
         self.sido: str | None = None
@@ -41,11 +47,22 @@ class Doctor:
     def _dump(self, label: str, payload: Any) -> None:
         if not self.raw:
             return
-        print(f"\n--- {label} 원본 응답 ---")
         if isinstance(payload, (dict, list)):
-            print(json.dumps(payload, ensure_ascii=False, indent=2)[:4000])
+            text = json.dumps(payload, ensure_ascii=False, indent=2)
         else:
-            print(str(payload)[:4000])
+            text = str(payload)
+
+        print(f"\n--- {label} 원본 응답 ---")
+        if self.raw_limit and len(text) > self.raw_limit:
+            # 조용히 자르면 응답 구조가 잘린 건지 API 가 원래 그렇게 준 건지
+            # 구분할 수 없다. 잘랐다는 사실을 반드시 남긴다.
+            print(text[: self.raw_limit])
+            print(
+                f"... (출력이 잘렸습니다: 전체 {len(text)}자 중 앞 {self.raw_limit}자. "
+                "전문을 보려면 --raw-limit 0)"
+            )
+        else:
+            print(text)
         print("--- 끝 ---\n")
 
     NETWORK_HINT = (
@@ -62,6 +79,10 @@ class Doctor:
     def _fail_api(self, name: str, exc: PublicApiError, hint: str) -> None:
         """PublicApiError 를 원인에 맞는 힌트와 함께 보고한다."""
         self._fail(name, str(exc), self.NETWORK_HINT if exc.network else hint)
+        # 원본이 가장 필요한 순간이 실패했을 때다. 상류에 닿기라도 했다면
+        # 응답을 그대로 보여준다(네트워크 오류면 payload 가 None).
+        if exc.payload is not None:
+            self._dump(f"{name} 실패", exc.payload)
 
     # --- 0단계: 설정 ---------------------------------------------------
     def check_config(self) -> bool:
@@ -234,11 +255,17 @@ class Doctor:
                     zone = " ★용도지역" if d.is_use_district else ""
                     print(f"         - {d.name}{mark}{zone}")
             else:
-                first = records[0]
+                # 이 API 는 연도별 이력을 누적해 돌려준다(레코드 순서 보장 없음).
+                # records[0] 을 그대로 쓰면 최신이 아닌 옛 연도 값을 보여줄 수
+                # 있어(--raw 로 2013년 값이 잡히는 걸 확인) 최신 stdrYear 레코드를 고른다.
+                latest = land_use.pick_latest_year(records)
+                year = latest.get("stdrYear")
+                note = f" (stdrYear={year}, 전체 {len(records)}건 중 최신)" if year else ""
+                print(f"         기준연도{note}")
                 for key in ("lndcgrCodeNm", "lndpclAr", "pblntfPclnd", "prposArea1Nm"):
-                    if key in first:
-                        print(f"         {key} = {first[key]}")
-                print(f"         (필드 전체: {', '.join(sorted(first))})")
+                    if key in latest:
+                        print(f"         {key} = {latest[key]}")
+                print(f"         (필드 전체: {', '.join(sorted(latest))})")
         return ok
 
     # --- 3단계: 국가법령 ------------------------------------------------
@@ -280,6 +307,7 @@ class Doctor:
         for w in warnings:
             print(f"  [주의] {w}")
         if not hits:
+            await self._dump_ordinance_raw()
             self._fail(
                 "ordin",
                 "조례 후보 0건",
@@ -291,6 +319,25 @@ class Doctor:
         for hit in hits[:5]:
             print(f"         - {hit.title} ({hit.local_gov or '-'})")
         return True
+
+    async def _dump_ordinance_raw(self) -> None:
+        """조례 검색 실패 시 대표 질의 1건의 원본 응답을 덤프한다.
+
+        find_for_site() 는 개별 실패를 경고 문자열로 삼켜서 예외가 호출부까지
+        올라오지 않는다. 같은 질의를 한 번 더 부르되 응답은 이미 캐시에 있어
+        상류 호출이 추가로 나가지는 않는다.
+        """
+        if not self.raw:
+            return
+        region = self.sigungu or self.sido
+        if not region:
+            return
+        query = f"{region} {ordinance.CORE_ORDINANCE_KINDS[0]}"
+        try:
+            await ordinance.search_ordinances(query)
+        except PublicApiError as exc:
+            if exc.payload is not None:
+                self._dump(f"자치법규 '{query}'", exc.payload)
 
     async def run(self) -> int:
         print("=" * 64)
@@ -320,7 +367,7 @@ class Doctor:
 
 async def _main(args: argparse.Namespace) -> int:
     cache.clear()
-    doctor = Doctor(args.address, args.raw)
+    doctor = Doctor(args.address, args.raw, args.raw_limit)
     try:
         return await doctor.run()
     finally:
@@ -331,6 +378,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="공공 API 연동 상태를 진단합니다.")
     parser.add_argument("--address", default=DEFAULT_ADDRESS, help="테스트에 사용할 주소")
     parser.add_argument("--raw", action="store_true", help="원본 응답 전문 출력")
+    parser.add_argument(
+        "--raw-limit",
+        type=int,
+        default=Doctor.DUMP_LIMIT,
+        metavar="N",
+        help=f"--raw 항목당 최대 출력 문자수 (기본 {Doctor.DUMP_LIMIT}, 0 이면 무제한)",
+    )
     return asyncio.run(_main(parser.parse_args()))
 
 

@@ -110,7 +110,9 @@ def raise_if_auth_error(payload: Any) -> None:
     result = payload.get("result")
     if isinstance(result, str) and "실패" in result:
         msg = payload.get("msg") or ""
-        raise PublicApiError("law", f"{result} {msg}".strip())
+        # HTTP 200 으로 온 인증 실패라 상류 응답이 손에 있다. --raw 진단에서
+        # 원문을 그대로 보여줄 수 있도록 예외에 실어 보낸다.
+        raise PublicApiError("law", f"{result} {msg}".strip(), payload=payload)
 
 
 def extract_drf_records(payload: Any) -> list[dict[str, Any]]:

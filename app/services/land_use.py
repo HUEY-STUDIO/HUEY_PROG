@@ -197,6 +197,21 @@ def pick_primary_zone(designations: list[ZoneDesignation]) -> str | None:
     return max(pool, key=sort_key).name
 
 
+def pick_latest_year(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """토지특성 레코드 중 기준연도(stdrYear)가 가장 최신인 것을 고른다.
+
+    이 API 는 연도별 이력을 누적해 돌려주며 정렬 순서를 보장하지 않는다.
+    첫 레코드를 그대로 쓰면 공시지가·지목이 옛 연도 값으로 고정될 수 있다
+    (실제로 2013년 값이 잡히는 사례를 --raw 로 확인함). stdrYear 를 파싱할
+    수 없는 레코드는 가장 낮은 우선순위로 취급한다.
+    """
+    def year_key(record: dict[str, Any]) -> int:
+        year = to_int(pick_field(record, "stdrYear"))
+        return year if year is not None else -1
+
+    return max(records, key=year_key)
+
+
 async def build_overview(pnu: str) -> SiteOverview:
     """PNU 하나에 대한 대지개요를 조립한다.
 
@@ -221,7 +236,7 @@ async def build_overview(pnu: str) -> SiteOverview:
         warnings.append(f"토지특성 조회 실패: {exc.detail}")
     else:
         if char_records:
-            latest = char_records[0]
+            latest = pick_latest_year(char_records)
             land_category = pick_field(latest, "lndcgrCodeNm", "lndcgrNm", "jimok")
             area_m2 = to_float(pick_field(latest, "lndpclAr", "area", "ar"))
             official_price = to_int(pick_field(latest, "pblntfPclnd", "pblntfPclndSe"))

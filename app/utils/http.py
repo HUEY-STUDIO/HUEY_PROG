@@ -27,6 +27,9 @@ class PublicApiError(RuntimeError):
         status_code: 상류 HTTP 상태코드 (있는 경우).
         network: 상류에 닿지도 못한 경우(DNS/프록시/방화벽/타임아웃) True.
             인증키 문제와 네트워크 문제는 조치가 전혀 다르므로 구분한다.
+        payload: 상류가 실제로 돌려준 응답(파싱된 dict/list 또는 원문 문자열).
+            detail 에 담기는 요약은 200자로 잘리므로, 이슈 리포트용 전문은
+            여기에 보존한다. 상류에 닿지 못한 경우에는 None.
     """
 
     def __init__(
@@ -36,11 +39,13 @@ class PublicApiError(RuntimeError):
         status_code: int | None = None,
         *,
         network: bool = False,
+        payload: Any = None,
     ):
         self.source = source
         self.detail = detail
         self.status_code = status_code
         self.network = network
+        self.payload = payload
         super().__init__(f"[{source}] {detail}")
 
 
@@ -90,6 +95,7 @@ async def fetch(
     clean = {k: v for k, v in params.items() if v is not None}
 
     last_error: str = "unknown error"
+    last_body: str | None = None
     is_network_error = False
     # 재시도를 모두 소진했을 때도 마지막 상류 상태코드를 잃지 않도록 들고 간다.
     # (호출자는 502/503 인지 아닌지에 따라 안내를 다르게 한다.)
@@ -101,6 +107,7 @@ async def fetch(
             last_error = "요청 시간 초과"
             is_network_error = True
             last_status = None
+            last_body = None
         except (httpx.ProxyError, httpx.ConnectError) as exc:
             # 상류 서버에 닿지도 못한 경우. 프록시/방화벽/DNS 문제이지
             # 인증키 문제가 아니다.
@@ -115,6 +122,7 @@ async def fetch(
             is_network_error = False
             if response.status_code >= 500:
                 last_status = response.status_code
+                last_body = _safe_text(response)
                 last_error = (
                     f"상류 서버 오류 (HTTP {response.status_code})"
                     f"{_body_hint(response)}"
@@ -127,6 +135,7 @@ async def fetch(
                     "인증키와 요청 파라미터를 확인하세요."
                     f"{_body_hint(response)}",
                     response.status_code,
+                    payload=_safe_text(response),
                 )
             else:
                 return _parse(source, response, expect)
@@ -143,7 +152,17 @@ async def fetch(
             )
             await asyncio.sleep(backoff)
 
-    raise PublicApiError(source, last_error, last_status, network=is_network_error)
+    raise PublicApiError(
+        source, last_error, last_status, network=is_network_error, payload=last_body
+    )
+
+
+def _safe_text(response: httpx.Response) -> str | None:
+    """응답 본문을 원문 그대로 돌려준다. 디코딩 실패는 None."""
+    try:
+        return response.text
+    except Exception:  # 본문 디코딩 실패는 진단을 막을 이유가 못 된다.
+        return None
 
 
 def _body_hint(response: httpx.Response, limit: int = 200) -> str:
@@ -182,4 +201,5 @@ def _parse(source: str, response: httpx.Response, expect: str) -> Any:
             source,
             "JSON 응답을 기대했으나 다른 형식이 반환되었습니다. "
             f"인증키 등록 여부를 확인하세요. 응답 일부: {snippet}",
+            payload=body,
         ) from None
