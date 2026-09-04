@@ -91,23 +91,30 @@ async def fetch(
 
     last_error: str = "unknown error"
     is_network_error = False
+    # 재시도를 모두 소진했을 때도 마지막 상류 상태코드를 잃지 않도록 들고 간다.
+    # (호출자는 502/503 인지 아닌지에 따라 안내를 다르게 한다.)
+    last_status: int | None = None
     for attempt in range(settings.http_max_retries + 1):
         try:
             response = await client.get(url, params=clean)
         except httpx.TimeoutException:
             last_error = "요청 시간 초과"
             is_network_error = True
+            last_status = None
         except (httpx.ProxyError, httpx.ConnectError) as exc:
             # 상류 서버에 닿지도 못한 경우. 프록시/방화벽/DNS 문제이지
             # 인증키 문제가 아니다.
             last_error = f"서버에 연결하지 못했습니다 (프록시·방화벽·DNS 확인): {exc}"
             is_network_error = True
+            last_status = None
         except httpx.HTTPError as exc:
             last_error = f"네트워크 오류: {exc}"
             is_network_error = True
+            last_status = None
         else:
             is_network_error = False
             if response.status_code >= 500:
+                last_status = response.status_code
                 last_error = (
                     f"상류 서버 오류 (HTTP {response.status_code})"
                     f"{_body_hint(response)}"
@@ -136,7 +143,7 @@ async def fetch(
             )
             await asyncio.sleep(backoff)
 
-    raise PublicApiError(source, last_error, network=is_network_error)
+    raise PublicApiError(source, last_error, last_status, network=is_network_error)
 
 
 def _body_hint(response: httpx.Response, limit: int = 200) -> str:

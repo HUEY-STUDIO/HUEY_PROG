@@ -84,7 +84,7 @@ def test_pick_primary_zone_returns_none_without_use_district():
 
 @respx.mock
 async def test_build_overview_merges_both_apis():
-    respx.get(url__regex=r".*LandUseService.*").mock(
+    respx.get(url__regex=r".*getLandUseAttr.*").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -97,7 +97,7 @@ async def test_build_overview_merges_both_apis():
             },
         )
     )
-    respx.get(url__regex=r".*LandCharacteristicsService.*").mock(
+    respx.get(url__regex=r".*getLandCharacteristics.*").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -122,10 +122,10 @@ async def test_build_overview_merges_both_apis():
 
 @respx.mock
 async def test_build_overview_survives_land_use_api_failure():
-    respx.get(url__regex=r".*LandUseService.*").mock(
+    respx.get(url__regex=r".*getLandUseAttr.*").mock(
         return_value=httpx.Response(500, text="server error")
     )
-    respx.get(url__regex=r".*LandCharacteristicsService.*").mock(
+    respx.get(url__regex=r".*getLandCharacteristics.*").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -152,7 +152,7 @@ async def test_build_overview_survives_land_use_api_failure():
 
 @respx.mock
 async def test_build_overview_warns_on_multiple_use_districts():
-    respx.get(url__regex=r".*LandUseService.*").mock(
+    respx.get(url__regex=r".*getLandUseAttr.*").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -165,7 +165,7 @@ async def test_build_overview_warns_on_multiple_use_districts():
             },
         )
     )
-    respx.get(url__regex=r".*LandCharacteristicsService.*").mock(
+    respx.get(url__regex=r".*getLandCharacteristics.*").mock(
         return_value=httpx.Response(200, json={"landCharacteristics": {"field": []}})
     )
 
@@ -174,3 +174,50 @@ async def test_build_overview_warns_on_multiple_use_districts():
     assert any("용도지역이 둘 이상" in w for w in overview.warnings)
     # 건폐율이 높은 쪽(1종일반주거 60%)을 대표로 선택
     assert overview.primary_zone == "제1종일반주거지역"
+
+
+@respx.mock
+async def test_land_use_request_targets_vworld_ned_with_key_and_domain():
+    """토지 속성 API 의 호출 지점과 인증 방식을 고정한다.
+
+    이 두 API 는 공공데이터포털이 아니라 브이월드 NED 게이트웨이에서
+    서비스되고, serviceKey 가 아니라 key + domain 으로 인증한다.
+    apis.data.go.kr 쪽 경로로 되돌아가면 게이트웨이가 존재하지 않는 경로로
+    보고 NO_OPENAPI_SERVICE_ERROR(코드 12) 를 돌려주므로 회귀를 막는다.
+    """
+    route = respx.get(url__regex=r".*getLandUseAttr.*").mock(
+        return_value=httpx.Response(200, json={"landUses": {"field": []}})
+    )
+
+    await land_use.fetch_land_use_attrs("1168010100107370000")
+
+    request = route.calls.last.request
+    assert request.url.host == "api.vworld.kr"
+    assert request.url.path == "/ned/data/getLandUseAttr"
+
+    params = request.url.params
+    assert params["key"] == "TEST-VWORLD-KEY"
+    assert params["domain"] == "localhost"
+    assert params["pnu"] == "1168010100107370000"
+    # serviceKey 로 되돌아가면 NED 게이트웨이가 인증하지 못한다.
+    assert "serviceKey" not in params
+
+
+@respx.mock
+async def test_nsdi_key_prefers_dedicated_key_over_vworld_key(monkeypatch):
+    """NSDI 전용 키가 있으면 그쪽을 쓰고, 없을 때만 브이월드 키로 대체한다."""
+    from app.config import get_settings
+
+    monkeypatch.setenv("NSDI_API_KEY", "TEST-NSDI-KEY")
+    monkeypatch.setenv("NSDI_DOMAIN", "example.com")
+    get_settings.cache_clear()
+
+    route = respx.get(url__regex=r".*getLandCharacteristics.*").mock(
+        return_value=httpx.Response(200, json={"landCharacteristics": {"field": []}})
+    )
+
+    await land_use.fetch_land_characteristics("1168010100107370000")
+
+    params = route.calls.last.request.url.params
+    assert params["key"] == "TEST-NSDI-KEY"
+    assert params["domain"] == "example.com"

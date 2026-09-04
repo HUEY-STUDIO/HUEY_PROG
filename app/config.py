@@ -30,14 +30,21 @@ class Settings(BaseSettings):
     # --- 인증키 ---
     juso_api_key: str = ""
     vworld_api_key: str = ""
+    # NSDI 토지 속성 API 용 키. 별도 발급받지 않았으면 브이월드 키를 그대로 쓴다
+    # (두 API 모두 api.vworld.kr 에서 서비스된다).
+    nsdi_api_key: str = ""
+    # 브이월드/NSDI 키 발급 시 등록한 서비스 도메인. NED API 가 요구한다.
+    nsdi_domain: str = "localhost"
     data_go_kr_service_key: str = ""
     law_oc: str = ""
 
     # --- 엔드포인트 ---
     juso_base_url: str = "https://business.juso.go.kr/addrlink/addrLinkApi.do"
     vworld_base_url: str = "https://api.vworld.kr/req/address"
-    # 국가공간정보포털(NSDI) 오픈API. 토지이용계획/토지특성 속성 조회에 사용.
-    nsdi_base_url: str = "http://apis.data.go.kr/1611000/nsdi"
+    # 국가공간정보포털(NSDI) 이 개방한 토지 속성 API 는 공공데이터포털이 아니라
+    # 브이월드 NED 게이트웨이에서 서비스된다(2026-09 확인). 인증 방식도
+    # serviceKey 가 아니라 key + domain 이다. docs/STATUS.md 참고.
+    nsdi_base_url: str = "https://api.vworld.kr/ned/data"
     # 건축HUB 건축물대장 서비스.
     bldrgst_base_url: str = "http://apis.data.go.kr/1613000/BldRgstHubService"
     # 국가법령정보 공동활용 DRF (lawSearch.do / lawService.do).
@@ -58,6 +65,11 @@ class Settings(BaseSettings):
         if value and _PERCENT_ENCODED.search(value):
             return unquote(value)
         return value
+
+    @property
+    def effective_nsdi_key(self) -> str:
+        """NSDI 전용 키가 없으면 브이월드 키로 대체한다."""
+        return self.nsdi_api_key or self.vworld_api_key
 
     def missing_keys(self) -> list[str]:
         """설정되지 않은 인증키 이름 목록. /health 에서 노출한다."""

@@ -198,3 +198,22 @@ async def test_empty_error_body_adds_nothing(fast_retries):
         await fetch("test", "https://example.test/api", {})
 
     assert "응답:" not in exc.value.detail
+
+
+@respx.mock
+async def test_status_code_survives_retry_exhaustion():
+    """재시도를 다 써도 마지막 상류 상태코드를 잃지 않아야 한다.
+
+    호출자(doctor)는 502/503 인지에 따라 '인증키 문제'와 '호출 지점 차단'을
+    갈라 안내한다. 상태코드가 None 으로 떨어지면 그 구분이 무너진다.
+    """
+    respx.get(url__startswith="https://example.test").mock(
+        return_value=httpx.Response(502, text="502 Bad Gateway")
+    )
+
+    with pytest.raises(PublicApiError) as excinfo:
+        await fetch("test", "https://example.test/api", {})
+
+    assert excinfo.value.status_code == 502
+    # 상류에 닿아서 502 를 받은 것이므로 '네트워크 미도달' 은 아니다.
+    assert excinfo.value.network is False

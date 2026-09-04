@@ -118,6 +118,26 @@ class Doctor:
             return False
         return True
 
+    # 브이월드는 요청을 거절할 때 HTTP 오류 대신 TLS 연결만 맺고 응답 없이
+    # 끊어버리는 경우가 있다. 그러면 중간 프록시가 502 로 바꿔 전달하므로
+    # '인증키 문제' 로 오진하기 쉽다. 상태코드별로 사유를 갈라 안내한다.
+    UPSTREAM_DROP_HINT = (
+        "TLS 는 맺어졌지만 브이월드가 응답 없이 연결을 끊었습니다. "
+        "인증키 문제가 아니라 호출 지점이 차단된 것으로 보입니다"
+        "(브이월드는 해외/클라우드 IP 를 막는 사례가 있습니다). "
+        "국내망에서 같은 요청이 되는지 먼저 확인하세요."
+    )
+
+    def _vworld_hint(self, exc: PublicApiError, otherwise: str) -> str:
+        """브이월드 호스트 실패의 안내문.
+
+        Geocoder 와 NSDI 토지 속성 API 는 같은 호스트(api.vworld.kr)라
+        차단 증상도 같다. 5xx 면 키가 아니라 호출 지점 문제로 안내한다.
+        """
+        if exc.status_code in (502, 503, 504):
+            return self.UPSTREAM_DROP_HINT
+        return otherwise
+
     # --- 1단계: 좌표 ----------------------------------------------------
     async def check_vworld(self) -> bool:
         print("\n[2] 브이월드 Geocoder API")
@@ -140,7 +160,11 @@ class Doctor:
                 },
             )
         except PublicApiError as exc:
-            self._fail_api("vworld", exc, "인증키 승인 상태와 사용 도메인 설정을 확인하세요.")
+            self._fail_api(
+                "vworld",
+                exc,
+                self._vworld_hint(exc, "인증키 승인 상태와 사용 도메인 설정을 확인하세요."),
+            )
             return False
 
         self._dump("브이월드", payload)
@@ -170,22 +194,12 @@ class Doctor:
         ok = True
 
         for label, path, parser in (
-            ("토지이용계획", "/LandUseService/attr/getLandUseAttr", land_use.build_designations),
-            ("토지특성", "/LandCharacteristicsService/attr/getLandCharacteristics", None),
+            ("토지이용계획", "/getLandUseAttr", land_use.build_designations),
+            ("토지특성", "/getLandCharacteristics", None),
         ):
             url = f"{settings.nsdi_base_url}{path}"
             try:
-                payload = await fetch(
-                    "nsdi",
-                    url,
-                    {
-                        "serviceKey": settings.data_go_kr_service_key,
-                        "pnu": self.pnu,
-                        "format": "json",
-                        "numOfRows": 100,
-                        "pageNo": 1,
-                    },
-                )
+                payload = await fetch("nsdi", url, land_use.nsdi_params(settings, self.pnu))
             except PublicApiError as exc:
                 ok = False
                 self._fail(
@@ -193,7 +207,12 @@ class Doctor:
                     f"{label}: {exc.detail}",
                     self.NETWORK_HINT
                     if exc.network
-                    else f"활용신청 승인 여부와 요청 경로를 확인하세요. 호출 URL: {url}",
+                    else self._vworld_hint(
+                        exc,
+                        "NSDI(국가공간정보포털)에서 이 API 의 활용신청이 승인됐는지, "
+                        "그리고 NSDI_DOMAIN 이 키 발급 때 등록한 도메인과 같은지 "
+                        f"확인하세요. 호출 URL: {url}",
+                    ),
                 )
                 continue
 

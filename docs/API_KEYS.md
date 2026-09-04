@@ -50,15 +50,17 @@ Geocoder API 2.0 으로 주소를 경위도(EPSG:4326)로 변환합니다.
 
 ## 3. 공공데이터포털 (`DATA_GO_KR_SERVICE_KEY`)
 
-토지이용계획(용도지역/지구), 토지특성(지목·면적·공시지가), 건축물대장 조회에
-공통으로 쓰입니다. 계정 하나의 인증키로 여러 API 를 활용신청해 사용합니다.
+건축물대장(건축HUB) 조회에 쓰입니다. 계정 하나의 인증키로 여러 API 를
+활용신청해 사용합니다.
+
+> **토지이용계획 / 토지특성은 이 키를 쓰지 않습니다.** 두 API 는 공공데이터포털이
+> 아니라 브이월드 NED 게이트웨이에서 서비스됩니다. 아래 4절을 보세요.
 
 1. https://www.data.go.kr 접속 → 회원가입/로그인
 2. 아래 API 를 각각 검색해 **활용신청**
    - 국토교통부 토지이용규제정보서비스 (LURIS)
      - https://www.data.go.kr/data/15057174/openapi.do
      - 개발계정 기준 **일 1,000건**
-   - 국토교통부 토지특성정보 / 토지이용계획정보 (국가공간정보포털 NSDI 제공)
    - 국토교통부 건축HUB 건축물대장정보
      - https://www.hub.go.kr/portal/psg/idx-intro-openApi.do
 3. `마이페이지` → `오픈API` → `인증키 발급현황` 에서 **일반 인증키** 확인
@@ -77,7 +79,38 @@ Geocoder API 2.0 으로 주소를 경위도(EPSG:4326)로 변환합니다.
 
 ---
 
-## 4. 국가법령정보 공동활용 (`LAW_OC`)
+## 4. NSDI 토지 속성 API (`NSDI_API_KEY` / `NSDI_DOMAIN`)
+
+토지이용계획(용도지역·지구)과 토지특성(지목·면적·공시지가) 조회에 쓰입니다.
+
+이름은 국가공간정보포털(NSDI)이지만 **실제 호출 지점은 브이월드 NED
+게이트웨이**입니다. 공공데이터포털 경로가 아니라는 점이 이 API 의 가장 큰 함정입니다.
+
+```
+https://api.vworld.kr/ned/data/getLandUseAttr
+https://api.vworld.kr/ned/data/getLandCharacteristics
+```
+
+인증도 공공데이터포털과 다릅니다. `serviceKey` 가 아니라 **`key` + `domain`**
+조합을 쓰며, `domain` 은 키를 발급받을 때 등록한 서비스 도메인과 같아야 합니다.
+
+1. 브이월드 또는 국가공간정보포털에서 키를 발급받습니다.
+   두 곳 모두 같은 NED 게이트웨이를 사용합니다.
+2. `NSDI_API_KEY` 에 키를 넣습니다. **비워 두면 `VWORLD_API_KEY` 를 그대로
+   사용**하므로, 브이월드 키 하나로 쓸 거라면 설정하지 않아도 됩니다.
+3. `NSDI_DOMAIN` 에 키 발급 시 등록한 도메인을 넣습니다 (기본값 `localhost`).
+
+> ### 자주 겪는 함정
+> - **`apis.data.go.kr` 로 호출** — 게이트웨이가 존재하지 않는 경로로 판정해
+>   `NO_OPENAPI_SERVICE_ERROR`(`returnReasonCode` **12**) 를 돌려줍니다.
+>   이 코드는 '키가 승인 안 됨'이 아니라 **'그런 경로가 없음'** 이라는 뜻입니다.
+>   경로가 맞는데 키만 미승인이면 코드 **30**(`SERVICE_KEY_IS_NOT_REGISTERED_ERROR`)
+>   이 오므로, 두 코드로 원인을 구분할 수 있습니다.
+> - **`domain` 불일치** — 등록 도메인과 다르면 거절됩니다.
+
+---
+
+## 5. 국가법령정보 공동활용 (`LAW_OC`)
 
 건축법·국토계획법 조문과 지자체 자치법규(조례)를 조회합니다.
 
@@ -149,7 +182,7 @@ curl http://127.0.0.1:8000/health
 코드를 고치지 말고 아래처럼 환경변수로 교체하세요.
 
 ```bash
-NSDI_BASE_URL=http://apis.data.go.kr/1611000/nsdi
+NSDI_BASE_URL=https://api.vworld.kr/ned/data
 LAW_BASE_URL=https://www.law.go.kr/DRF
 ```
 

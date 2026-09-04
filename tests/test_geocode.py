@@ -68,7 +68,7 @@ async def test_search_addresses_requires_key(monkeypatch):
 
 @respx.mock
 async def test_geocode_parses_vworld_point():
-    respx.get(url__startswith="https://api.vworld.kr").mock(
+    respx.get(url__startswith="https://api.vworld.kr/req/address").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -88,7 +88,7 @@ async def test_geocode_parses_vworld_point():
 
 @respx.mock
 async def test_geocode_returns_none_when_not_found():
-    respx.get(url__startswith="https://api.vworld.kr").mock(
+    respx.get(url__startswith="https://api.vworld.kr/req/address").mock(
         return_value=httpx.Response(200, json={"response": {"status": "NOT_FOUND"}})
     )
     assert await geocode.geocode("없는 주소") is None
@@ -97,7 +97,7 @@ async def test_geocode_returns_none_when_not_found():
 @respx.mock
 async def test_geocode_degrades_gracefully_on_upstream_failure():
     # 지오코더는 일 호출 제한이 있어 실패해도 파이프라인 전체를 막지 않아야 한다.
-    respx.get(url__startswith="https://api.vworld.kr").mock(
+    respx.get(url__startswith="https://api.vworld.kr/req/address").mock(
         return_value=httpx.Response(429, text="quota exceeded")
     )
     assert await geocode.geocode("서울특별시 강남구 테헤란로 152") is None

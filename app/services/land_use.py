@@ -1,10 +1,16 @@
 """2단계: 지번(PNU) -> 대지개요 (용도지역 / 지목 / 면적).
 
-국가공간정보포털(NSDI) 오픈API 두 가지를 조합한다.
+국가공간정보포털(NSDI) 이 개방한 토지 속성 API 두 가지를 조합한다.
   - 토지이용계획속성   : 해당 필지에 걸린 지역·지구 목록 (용도지역 포함)
   - 토지특성정보       : 지목, 공부상 면적, 개별공시지가
 
-주의: 공공데이터포털 계열 API 는 응답 래퍼 키 이름이 서비스/버전마다 다르다
+호스트 주의: 이 두 API 는 공공데이터포털(apis.data.go.kr)이 아니라 브이월드
+      NED 게이트웨이(``api.vworld.kr/ned/data``)에서 서비스된다. 인증도
+      ``serviceKey`` 가 아니라 ``key`` + ``domain`` 조합을 쓴다.
+      apis.data.go.kr 쪽 경로로 호출하면 게이트웨이가 존재하지 않는 경로로
+      판정해 ``NO_OPENAPI_SERVICE_ERROR``(코드 12) 를 돌려준다.
+
+파서 주의: 공공 API 는 응답 래퍼 키 이름이 서비스/버전마다 다르다
       (``landUses.field``, ``response.body.items.item`` 등). 여기서는 특정
       키에 의존하지 않고 JSON 을 훑어 레코드 배열을 찾는 방식으로 파싱한다.
 """
@@ -29,45 +35,43 @@ logger = logging.getLogger(__name__)
 _NON_CONFLICT_FLAGS = {"0", "n", "no", "false", ""}
 
 
+def nsdi_params(settings: Any, pnu: str) -> dict[str, Any]:
+    """브이월드 NED 토지 속성 API 의 공통 요청 파라미터.
+
+    doctor 와 서비스가 같은 요청을 보내도록 한 곳에 모아 둔다.
+    """
+    return {
+        "key": settings.effective_nsdi_key,
+        "domain": settings.nsdi_domain,
+        "pnu": pnu,
+        "format": "json",
+        "numOfRows": 100,
+        "pageNo": 1,
+    }
+
+
 async def fetch_land_use_attrs(pnu: str) -> list[dict[str, Any]]:
     """토지이용계획속성 조회. 필지에 걸린 지역·지구 레코드 목록을 반환."""
-    return await _fetch_nsdi(
-        "nsdi-landuse",
-        "/LandUseService/attr/getLandUseAttr",
-        pnu,
-    )
+    return await _fetch_nsdi("nsdi-landuse", "/getLandUseAttr", pnu)
 
 
 async def fetch_land_characteristics(pnu: str) -> list[dict[str, Any]]:
     """토지특성정보 조회. 지목/면적/공시지가 레코드 목록을 반환."""
-    return await _fetch_nsdi(
-        "nsdi-landchar",
-        "/LandCharacteristicsService/attr/getLandCharacteristics",
-        pnu,
-    )
+    return await _fetch_nsdi("nsdi-landchar", "/getLandCharacteristics", pnu)
 
 
 async def _fetch_nsdi(source: str, path: str, pnu: str) -> list[dict[str, Any]]:
     settings = get_settings()
-    if not settings.data_go_kr_service_key:
+    if not settings.effective_nsdi_key:
         raise PublicApiError(
-            source, "DATA_GO_KR_SERVICE_KEY 가 설정되지 않았습니다. .env 를 확인하세요."
+            source,
+            "NSDI_API_KEY(없으면 VWORLD_API_KEY) 가 설정되지 않았습니다. .env 를 확인하세요.",
         )
 
     url = f"{settings.nsdi_base_url}{path}"
 
     async def _call() -> Any:
-        return await fetch(
-            source,
-            url,
-            {
-                "serviceKey": settings.data_go_kr_service_key,
-                "pnu": pnu,
-                "format": "json",
-                "numOfRows": 100,
-                "pageNo": 1,
-            },
-        )
+        return await fetch(source, url, nsdi_params(settings, pnu))
 
     payload = await cache.get_or_set(f"{source}:{pnu}", _call)
     return extract_records(payload)

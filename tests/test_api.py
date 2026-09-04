@@ -18,7 +18,7 @@ def _mock_upstreams(juso_response, *, zone="제2종일반주거지역", area="33
     respx.get(url__startswith="https://business.juso.go.kr").mock(
         return_value=httpx.Response(200, json=juso_response)
     )
-    respx.get(url__startswith="https://api.vworld.kr").mock(
+    respx.get(url__startswith="https://api.vworld.kr/req/address").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -29,13 +29,13 @@ def _mock_upstreams(juso_response, *, zone="제2종일반주거지역", area="33
             },
         )
     )
-    respx.get(url__regex=r".*LandUseService.*").mock(
+    respx.get(url__regex=r".*getLandUseAttr.*").mock(
         return_value=httpx.Response(
             200,
             json={"landUses": {"field": [{"prposAreaDstrcCodeNm": zone, "cnflcAt": "0"}]}},
         )
     )
-    respx.get(url__regex=r".*LandCharacteristicsService.*").mock(
+    respx.get(url__regex=r".*getLandCharacteristics.*").mock(
         return_value=httpx.Response(
             200,
             json={"landCharacteristics": {"field": [{"lndcgrCodeNm": "대", "lndpclAr": area}]}},

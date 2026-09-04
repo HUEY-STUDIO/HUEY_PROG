@@ -15,7 +15,7 @@ def _mock_all_upstreams_ok(juso_response):
     respx.get(url__startswith="https://business.juso.go.kr").mock(
         return_value=httpx.Response(200, json=juso_response)
     )
-    respx.get(url__startswith="https://api.vworld.kr").mock(
+    respx.get(url__startswith="https://api.vworld.kr/req/address").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -26,7 +26,7 @@ def _mock_all_upstreams_ok(juso_response):
             },
         )
     )
-    respx.get(url__regex=r".*LandUseService.*").mock(
+    respx.get(url__regex=r".*getLandUseAttr.*").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -36,7 +36,7 @@ def _mock_all_upstreams_ok(juso_response):
             },
         )
     )
-    respx.get(url__regex=r".*LandCharacteristicsService.*").mock(
+    respx.get(url__regex=r".*getLandCharacteristics.*").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -110,7 +110,7 @@ async def test_doctor_reports_network_problem_not_key_problem(juso_response, cap
 async def test_doctor_flags_unparseable_response_for_reporting(juso_response, capsys):
     _mock_all_upstreams_ok(juso_response)
     # 응답은 200 이지만 구조가 예상과 다른 경우 (엔드포인트 변경 등)
-    respx.get(url__regex=r".*LandUseService.*").mock(
+    respx.get(url__regex=r".*getLandUseAttr.*").mock(
         return_value=httpx.Response(200, json={"unexpected": "shape"})
     )
 
