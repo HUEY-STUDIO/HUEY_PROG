@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -107,13 +108,17 @@ async def fetch(
         else:
             is_network_error = False
             if response.status_code >= 500:
-                last_error = f"상류 서버 오류 (HTTP {response.status_code})"
+                last_error = (
+                    f"상류 서버 오류 (HTTP {response.status_code})"
+                    f"{_body_hint(response)}"
+                )
             elif response.status_code >= 400:
                 # 4xx 는 재시도해도 동일하므로 즉시 중단한다.
                 raise PublicApiError(
                     source,
                     f"요청이 거부되었습니다 (HTTP {response.status_code}). "
-                    "인증키와 요청 파라미터를 확인하세요.",
+                    "인증키와 요청 파라미터를 확인하세요."
+                    f"{_body_hint(response)}",
                     response.status_code,
                 )
             else:
@@ -132,6 +137,29 @@ async def fetch(
             await asyncio.sleep(backoff)
 
     raise PublicApiError(source, last_error, network=is_network_error)
+
+
+def _body_hint(response: httpx.Response, limit: int = 200) -> str:
+    """오류 응답 본문의 앞부분을 덧붙인다.
+
+    게이트웨이나 API 서버가 거부 사유를 본문에 실어 보내는 경우가 많다
+    (예: "Host not in allowlist: ...", "SERVICE KEY IS NOT REGISTERED").
+    이걸 버리면 원인 파악이 크게 늦어진다.
+    """
+    try:
+        body = response.text.strip()
+    except Exception:  # 본문 디코딩 실패는 진단을 막을 이유가 못 된다.
+        return ""
+    if not body:
+        return ""
+    # HTML 오류 페이지는 태그를 걷어내 한 줄로 만든다.
+    text = re.sub(r"<[^>]+>", " ", body)
+    text = " ".join(text.split())
+    if not text:
+        return ""
+    if len(text) > limit:
+        text = text[:limit] + "..."
+    return f" 응답: {text}"
 
 
 def _parse(source: str, response: httpx.Response, expect: str) -> Any:

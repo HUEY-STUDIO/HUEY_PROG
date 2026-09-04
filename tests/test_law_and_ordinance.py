@@ -4,7 +4,7 @@ import respx
 
 from app.services import law, ordinance
 from app.services.law import CORE_ARTICLES, ArticleRef, extract_drf_records
-from app.utils.http import close_client
+from app.utils.http import PublicApiError, close_client
 
 
 @pytest.fixture(autouse=True)
@@ -160,3 +160,60 @@ async def test_find_for_site_without_region_returns_warning():
     hits, warnings = await ordinance.find_for_site(None, None)
     assert hits == []
     assert "지자체를 특정할 수 없어" in warnings[0]
+
+
+# --- 실제 API 응답에서 확인된 인증 실패 형태 ---
+# 국가법령정보는 OC 오류나 IP 미등록 시에도 HTTP 200 을 준다.
+# 실측 응답으로 회귀 테스트를 만들어 둔다.
+_REAL_AUTH_ERROR = {
+    "result": "사용자 정보 검증에 실패하였습니다.",
+    "msg": (
+        "OPEN API 호출 시 사용자 검증을 위하여 정확한 서버장비의 "
+        "IP주소 및 도메인주소를 등록해 주세요."
+    ),
+}
+
+
+@respx.mock
+async def test_search_laws_surfaces_auth_error_returned_with_http_200():
+    respx.get(url__startswith="https://www.law.go.kr/DRF/lawSearch.do").mock(
+        return_value=httpx.Response(200, json=_REAL_AUTH_ERROR)
+    )
+
+    with pytest.raises(PublicApiError) as exc:
+        await law.search_laws("건축법")
+
+    # '결과 0건' 으로 뭉개지 말고 실제 사유가 드러나야 한다.
+    assert "사용자 정보 검증에 실패" in exc.value.detail
+    assert "IP주소" in exc.value.detail
+
+
+@respx.mock
+async def test_ordinance_search_surfaces_same_auth_error():
+    respx.get(url__startswith="https://www.law.go.kr/DRF/lawSearch.do").mock(
+        return_value=httpx.Response(200, json=_REAL_AUTH_ERROR)
+    )
+
+    hits, warnings = await ordinance.find_for_site("서울특별시", "강남구")
+
+    assert hits == []
+    assert any("사용자 정보 검증에 실패" in w for w in warnings)
+
+
+@respx.mock
+async def test_fetch_article_falls_back_to_link_on_auth_error():
+    respx.get(url__startswith="https://www.law.go.kr/DRF/lawService.do").mock(
+        return_value=httpx.Response(200, json=_REAL_AUTH_ERROR)
+    )
+
+    article = await law.fetch_article(ArticleRef("건축법", 55, "건축물의 건폐율"))
+
+    assert article.content is None
+    assert article.link is not None  # 링크는 항상 제공
+
+
+def test_normal_payload_is_not_mistaken_for_auth_error():
+    # 정상 응답에 'result' 키가 있어도 '실패' 가 없으면 통과해야 한다.
+    law.raise_if_auth_error({"LawSearch": {"law": [{"법령명한글": "건축법"}]}})
+    law.raise_if_auth_error({"result": "정상"})
+    law.raise_if_auth_error(None)

@@ -151,3 +151,50 @@ async def test_auth_failure_is_not_flagged_as_network_error():
         await fetch("test", "https://example.test/api", {})
 
     assert exc.value.network is False
+
+
+@respx.mock
+async def test_client_error_includes_response_body_reason():
+    # 게이트웨이/API 가 거부 사유를 본문에 실어 보내는 경우가 많다.
+    # 이걸 버리면 원인 파악이 늦어진다 (실제로 겪은 문제).
+    respx.get("https://example.test/api").mock(
+        return_value=httpx.Response(
+            403,
+            text="Host not in allowlist: apis.data.go.kr. "
+            "Add this host to your network egress settings to allow access.",
+        )
+    )
+
+    with pytest.raises(PublicApiError) as exc:
+        await fetch("test", "https://example.test/api", {})
+
+    assert "Host not in allowlist" in exc.value.detail
+
+
+@respx.mock
+async def test_server_error_body_is_stripped_of_html(fast_retries):
+    respx.get("https://example.test/api").mock(
+        return_value=httpx.Response(
+            502,
+            text="<html><body><h1>502 Bad Gateway</h1>\n"
+            "The server returned an invalid or incomplete response.\n</body></html>",
+        )
+    )
+
+    with pytest.raises(PublicApiError) as exc:
+        await fetch("test", "https://example.test/api", {})
+
+    detail = exc.value.detail
+    assert "502 Bad Gateway" in detail
+    assert "<html>" not in detail  # 태그는 제거
+    assert "\n" not in detail  # 한 줄로 정리
+
+
+@respx.mock
+async def test_empty_error_body_adds_nothing(fast_retries):
+    respx.get("https://example.test/api").mock(return_value=httpx.Response(404, text=""))
+
+    with pytest.raises(PublicApiError) as exc:
+        await fetch("test", "https://example.test/api", {})
+
+    assert "응답:" not in exc.value.detail

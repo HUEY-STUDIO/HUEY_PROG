@@ -90,7 +90,27 @@ async def search_laws(query: str, *, display: int = 10) -> list[dict[str, Any]]:
         )
 
     payload = await cache.get_or_set(f"law-search:{query}:{display}", _call)
+    raise_if_auth_error(payload)
     return extract_drf_records(payload)
+
+
+def raise_if_auth_error(payload: Any) -> None:
+    """DRF 가 HTTP 200 으로 돌려주는 인증 실패 응답을 예외로 바꾼다.
+
+    국가법령정보는 OC 가 틀리거나 호출 서버 IP 가 등록되지 않은 경우에도
+    HTTP 200 에 아래와 같은 본문을 실어 보낸다. 그대로 두면 '결과 0건' 으로
+    보여 원인을 알 수 없다.
+
+        {"result": "사용자 정보 검증에 실패하였습니다.",
+         "msg": "OPEN API 호출 시 사용자 검증을 위하여 정확한 서버장비의
+                 IP주소 및 도메인주소를 등록해 주세요."}
+    """
+    if not isinstance(payload, dict):
+        return
+    result = payload.get("result")
+    if isinstance(result, str) and "실패" in result:
+        msg = payload.get("msg") or ""
+        raise PublicApiError("law", f"{result} {msg}".strip())
 
 
 def extract_drf_records(payload: Any) -> list[dict[str, Any]]:
@@ -145,6 +165,12 @@ async def fetch_article(ref: ArticleRef) -> StatuteArticle:
         payload = await cache.get_or_set(f"law-article:{ref.law_name}:{ref.jo_param}", _call)
     except PublicApiError as exc:
         logger.warning("조문 조회 실패(%s 제%d조): %s", ref.law_name, ref.article_no, exc.detail)
+        return fallback
+
+    try:
+        raise_if_auth_error(payload)
+    except PublicApiError as exc:
+        logger.warning("조문 조회 인증 실패(%s 제%d조): %s", ref.law_name, ref.article_no, exc.detail)
         return fallback
 
     chunks: list[str] = []

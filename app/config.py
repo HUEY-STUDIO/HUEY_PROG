@@ -45,7 +45,9 @@ class Settings(BaseSettings):
 
     # --- 동작 설정 ---
     http_timeout: float = 10.0
-    http_max_retries: int = 2
+    # 공공기관 서버는 정상 응답이 1초 내외지만 연결 자체가 간헐적으로 끊긴다.
+    # 타임아웃을 늘리는 것보다 재시도를 늘리는 편이 회복률이 높다.
+    http_max_retries: int = 3
     cache_ttl_seconds: int = 3600
     log_level: str = "INFO"
 

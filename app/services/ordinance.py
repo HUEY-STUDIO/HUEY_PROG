@@ -16,7 +16,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.models import OrdinanceHit
-from app.services.law import extract_drf_records
+from app.services.law import extract_drf_records, raise_if_auth_error
 from app.utils import cache
 from app.utils.http import PublicApiError, fetch
 from app.utils.parsing import pick_field
@@ -50,6 +50,7 @@ async def search_ordinances(query: str, *, display: int = 20) -> list[OrdinanceH
         )
 
     payload = await cache.get_or_set(f"ordin-search:{query}:{display}", _call)
+    raise_if_auth_error(payload)
     return [hit for hit in (_to_hit(r) for r in extract_drf_records(payload)) if hit is not None]
 
 
