@@ -5,7 +5,7 @@
 
 | # | 서비스 | 용도 | 발급처 | 소요 시간 | .env 키 |
 |---|--------|------|--------|-----------|---------|
-| 1 | 도로명주소 API | 주소 → 법정동코드·지번 (PNU) | business.juso.go.kr | 즉시(개발용) | `JUSO_API_KEY` |
+| 1 | 도로명주소 API | 주소 → 법정동코드·지번 (PNU) | business.juso.go.kr | 즉시(개발용) | devU01TX0FVVEgyMDI2MDkwNDE1MDQ0MjEyMDI1MDE= |
 | 2 | 브이월드 | 주소 → 경위도 | api.vworld.kr | 즉시 | `VWORLD_API_KEY` |
 | 3 | 공공데이터포털 | 토지이용계획·토지특성·건축물대장 | data.go.kr | 즉시(개발) / 1~2일(운영) | `DATA_GO_KR_SERVICE_KEY` |
 | 4 | 국가법령정보 공동활용 | 법령·자치법규 조회 | open.law.go.kr | 1~2일 | `LAW_OC` |
